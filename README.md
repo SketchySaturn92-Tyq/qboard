@@ -74,7 +74,21 @@ cd qboard
 
 AI 输出的是 JSON 补丁（`{ops:[...], say:"..."}`），不是重新生成整页，所以你手摆的位置不会被冲掉。
 
-**导出** — 右上角「导出」得到单个 `.html`，双击能看。布局、层级、旋转、动效、HTML 内部的交互全部保留，素材都是 data URL 所以文件自包含。
+**动效组件** — 内置 16 套可直接用的动态组件，移植自 [React Bits](https://reactbits.dev) 的四大类：
+
+| 分类 | 组件 |
+| --- | --- |
+| Text Animations | SplitText 逐字入场、ShinyText 流光文字、GradientText 渐变文字、DecryptedText 解码文字、CountUp 数字滚动 |
+| Animations | BlurText 模糊渐显、MagnetLines 磁吸点阵、ClickSpark 点击迸发 |
+| Components | SpotlightCard 聚光卡片、StarBorder 描边流光、TiltCard 3D 倾斜 |
+| Backgrounds | Aurora 极光、Particles 粒子、GridMotion 网格流光 |
+| Micro Interactions | MagneticButton 磁吸按钮、GlareHover 悬停扫光 |
+
+React Bits 原版是 React 组件（每个组件有 JS-CSS / JS-TW / TS-CSS / TS-TW 四种口味，走 shadcn MCP 安装）。画布里跑的是 HTML 片段，所以这里是等价移植：全部改写成不依赖任何库的原生 HTML + CSS + JS，粘进 `type:"html"` 元素就能跑，也不用引 CDN。
+
+说「来个流光文字」「粒子背景」「聚光卡片」，AI 会直接拿到对应组件的完整实现再落补丁，不是凭印象重写一个像样的效果。没有精确命中时，它会拿到一份 llms.txt 风格的目录自己挑。
+
+**导出** — 右上角「导出」得到单个 `.html`，双击能看。布局、层级、旋转、动效、HTML 内部的交互全部保留，素材都是 data URL 所以文件自包含。多块画布会拼成一页纵向连贯滚动的长页面，段与段之间没有缝隙。
 
 ---
 

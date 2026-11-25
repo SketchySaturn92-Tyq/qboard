@@ -7,9 +7,10 @@ import { Store, makeNode, nextZ, TYPE_LABEL, uid } from './store.js';
 import { Canvas, escapeHtml, wrapFragment, gradientCss, clamp } from './canvas.js';
 import { installKeyframes, normalizeAnim } from './anim.js';
 import { buildExportHtml, buildProjectHtml } from './export.js';
-import { SKILLS, DEFAULT_ENABLED, matchSkills } from './skills.js';
+import { SKILLS, DEFAULT_ENABLED, matchSkills, REACTBITS_ID } from './skills.js';
 import { REA_MAIN, REA_REFS } from './rea-skill.js';
 import { BACKGROUNDS, findBackground } from './backgrounds.js';
+import { RB_COMPONENTS, RB_CATEGORIES, rbSearch, rbGet, rbIndexText, rbCodeBlock, rbToNode } from './reactbits.js';
 
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -1147,11 +1148,31 @@ function skillSuffix(text) {
   state.lastSkills = hits.map((sk) => sk.name);
   if (!hits.length) return '';
   const body = hits.map((sk) => {
-    // REA 的正文不在技能表里，命中时才去取
-    const rules = sk.id === 'rea' ? reaSuffix(text) : sk.rules;
-    return `▍${sk.name}（${sk.desc}）\n${rules}`;
+    // 正文外置的两个技能：命中时才去取，避免每次请求都背着全部代码
+    if (sk.id === 'rea') return `▍${sk.name}（${sk.desc}）\n${reaSuffix(text)}`;
+    if (sk.id === REACTBITS_ID) return `▍${sk.name}（${sk.desc}）\n${rbSuffix(text)}`;
+    return `▍${sk.name}（${sk.desc}）\n${sk.rules}`;
   }).join('\n\n');
   return `\n\n【本次启用的技能 · 硬约束，必须遵守】\n${body}\n\n以上技能规则与前面的默认风格冲突时，以技能规则为准。`;
+}
+
+/** 命中的组件把完整实现带上；没命中具体组件就给目录，让模型自己挑 */
+function rbSuffix(text) {
+  const hits = rbSearch(text, 3);
+  const head = `【React Bits 内置库】共 ${RB_COMPONENTS.length} 个组件，分 ${RB_CATEGORIES.length} 类：
+${RB_CATEGORIES.join(' / ')}
+用户要这类效果时，优先复用下面给的真实实现，不要自己另写近似版本、也不要去引 CDN。
+做法：建一个 type:"html" 的元素，把 HTML 填进 html、CSS 填进 css、脚本填进 js，
+尺寸按内容给（文字组件宽度按字数估，背景类铺满整块画板），然后照常提交补丁。
+所有实现都是原生 HTML/CSS/JS，没有 React、没有外部依赖，粘进去就能跑。
+装饰性循环动画同一屏不超过 2 个；正文和数据不要加循环。`;
+
+  const pick = hits.length
+    ? hits.map((c) => rbCodeBlock(c)).join('\n\n———\n\n')
+    : `没有精确命中时，从这份目录里挑最贴近的一个，再按同样结构自己补齐实现（保持原动画节奏与交互特征）：
+${rbIndexText()}`;
+
+  return `${head}\n\n${pick}`;
 }
 
 /** 配置面板里的技能开关 */

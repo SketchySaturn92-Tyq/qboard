@@ -213,12 +213,28 @@ contain 露出的空白用同色 fill 或底色补平，不要留刺眼透明块
     // 真正命中时由 app.js 从 rea-skill.js 取正文按需注入。
     rules: '',
   },
+  {
+    id: 'reactbits',
+    name: 'React Bits 组件',
+    icon: '✦',
+    desc: '成套的动态文字、卡片、背景、微交互，直接可用',
+    keywords: ['reactbits', 'react bits', '组件', '动效组件', '文字动画', '逐字', '拆字', '流光', '扫光',
+      '渐变文字', '渐变色字', '解码字', '数字滚动', '计数器', '模糊渐显', '磁吸', '点阵',
+      '点击特效', '聚光', '卡片光', '流光边框', '描边流光', '3d 卡片', '倾斜卡片',
+      '极光', 'aurora', '粒子背景', '星空', '网格背景', '科技背景', '扫光按钮', '磁吸按钮',
+      '悬停扫光', 'micro interaction', '微交互', 'mcp', 'llms.txt', 'shadcn',
+      '发光文字', '发光字', '很酷的动画', '高级动效', '炫酷'],
+    // 正文留空：具体实现由 app.js 从 reactbits.js 按命中组件内联，
+    // 每次只带真正用得上的那几个，不把 16 套代码全塞进提示。
+    rules: '',
+  },
 ];
 
-/** REA 是唯一正文外置的技能，注入逻辑在 app.js 里单独处理 */
+/** 正文外置的技能：rules 留空，注入时由 app.js 按 id 去对应模块取正文 */
 export const REA_ID = 'rea';
+export const REACTBITS_ID = 'reactbits';
 
-export const DEFAULT_ENABLED = ['layout', 'color', 'copywriting', 'shader', 'websearch', 'egolite', 'rea'];
+export const DEFAULT_ENABLED = ['layout', 'color', 'copywriting', 'shader', 'reactbits', 'websearch', 'egolite', 'rea'];
 
 
 /**
