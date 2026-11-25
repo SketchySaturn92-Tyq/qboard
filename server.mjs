@@ -1333,6 +1333,78 @@ async function handleSourceLookup(req, res) {
   });
 }
 
+/** 用公共 DoH 解析域名：系统 DNS 被污染时，问得到真实 IP */
+async function resolveViaDoh(host, timeoutMs = 6000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(`https://doh.pub/dns-query?name=${encodeURIComponent(host)}&type=A`, {
+      signal: controller.signal,
+      headers: { accept: 'application/dns-json' },
+    });
+    if (!res.ok) return [];
+    const j = await res.json().catch(() => null);
+    const answers = Array.isArray(j?.Answer) ? j.Answer : [];
+    return answers.filter((a) => a.type === 1).map((a) => a.data).slice(0, 4);
+  } catch {
+    return [];
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/* 服务端出网被定向挡住时（DNS 把域名指到无关 IP，或 TLS 握手被重置），
+   直连和本地无头 Chrome 都会失败 —— 表现就是前端看到的"拒绝连接"。
+   这时改走墙外的只读代理取一次：它在境外读页面、洗成正文再传回来，
+   不受本地 DNS 和 SNI 影响，也不要求目标站支持跨域。 */
+const READER_ENDPOINT = 'https://api.microlink.io/';
+
+/** 快速探一下这台机器能不能直连目标站。
+    探不通就别去开无头 Chrome 空等一分钟，直接换代理。 */
+async function quickReachable(url, timeoutMs = 6000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, {
+      method: 'GET',
+      redirect: 'follow',
+      signal: controller.signal,
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; QBoard/1.0)' },
+    });
+    return res.ok || (res.status >= 200 && res.status < 400);
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function fetchViaReader(url, timeoutMs = 28000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const q = new URLSearchParams({
+      url,
+      'data.content.selector': 'body',
+      'data.content.type': 'text',
+    });
+    const res = await fetch(`${READER_ENDPOINT}?${q}`, { signal: controller.signal });
+    if (!res.ok) return null;
+    const j = await res.json().catch(() => null);
+    if (j?.status !== 'success') return null;
+    const d = j.data || {};
+    const raw = typeof d.content === 'string' ? d.content : '';
+    if (!raw) return null;
+    const text = htmlToText(raw);
+    if (!text) return null;
+    return { title: String(d.title || ''), text };
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function handleFetchPage(req, res, user) {
   let payload;
   try {
@@ -1351,16 +1423,25 @@ async function handleFetchPage(req, res, user) {
   let text = '';
   let via = '';
   let screenshot = '';
+  let blocked = false;
+
+  /* 先花几秒探一下这台机器到目标站通不通。
+     有些域名在这里被解析到无关 IP、TLS 握手直接被重置，
+     硬跑无头 Chrome 只会白等一分钟，最后拿回一句"拒绝连接"。
+     探不通就跳过浏览器渲染，直接走墙外的只读代理。 */
+  blocked = !(await quickReachable(raw));
 
   /* 文字和画面一起取，两条路并行跑，别把等待叠成两次。
      relay 给的是干净文本，浏览器渲染给的是真实画面 ——
      照着网页做效果时，颜色、密度、布局只有画面能说清。 */
-  const [relayRes, page] = await Promise.all([
-    acct?.apiKey ? relayTool('fetch', { url: raw }, acct.apiKey, 30000) : Promise.resolve(null),
-    /* 效果类页面要等 canvas 画出来才截得到东西。
-       实测等 2.6 秒截出来是全黑，等 6 秒才有真实画面。 */
-    renderPage(raw, { scroll: false, waitMs: 5600, shot: true }),
-  ]);
+  const [relayRes, page] = blocked
+    ? [acct?.apiKey ? await relayTool('fetch', { url: raw }, acct.apiKey, 25000) : null, null]
+    : await Promise.all([
+      acct?.apiKey ? relayTool('fetch', { url: raw }, acct.apiKey, 30000) : Promise.resolve(null),
+      /* 效果类页面要等 canvas 画出来才截得到东西。
+         实测等 2.6 秒截出来是全黑，等 6 秒才有真实画面。 */
+      renderPage(raw, { scroll: false, waitMs: 5600, shot: true }),
+    ]);
 
   if (relayRes && typeof relayRes.content === 'string' && relayRes.content.length > 200) {
     title = String(relayRes.title || '');
@@ -1380,11 +1461,23 @@ async function handleFetchPage(req, res, user) {
     via = via ? `${via}+browser` : 'browser';
   }
 
+  /* 直连和本地无头 Chrome 都没拿到东西时，多半是服务端出网被挡住了：
+     域名被解析到无关 IP，或者 TLS 握手被重置。这时候再走墙外的只读代理补一次，
+     否则前端只会看到一句"拒绝连接"，而站点本身其实好好的。 */
+  if (text.trim().length < 200) {
+    const viaReader = await fetchViaReader(raw);
+    if (viaReader && viaReader.text.length > text.length) {
+      text = viaReader.text;
+      title = title || viaReader.title;
+      via = via ? `${via}+reader` : 'reader';
+    }
+  }
+
   if (!text.trim() && !screenshot) {
     return json(res, 200, {
       ok: false,
       url: raw,
-      message: '这个地址没抓到可读正文。可能是登录后才可见、需要交互，或者站点屏蔽了抓取。',
+      message: '这个地址没抓到可读正文。可能是登录后才可见、需要交互，或者服务端到该站的网络被阻断。',
     });
   }
 
