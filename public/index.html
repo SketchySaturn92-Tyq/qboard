@@ -18,6 +18,22 @@
       <span class="brand-name">QBoard</span>
     </div>
 
+    <div class="ws-pick" id="wsPick">
+      <button class="ws-btn" id="wsBtn" type="button" title="切换 / 新建工作台">
+        <span class="ws-dot"></span>
+        <span class="ws-name" id="wsName">工作台</span>
+        <span class="ws-caret">▾</span>
+      </button>
+      <div class="ws-menu" id="wsMenu" hidden>
+        <div class="ws-menu-head">
+          <span>工作台</span>
+          <span class="ws-menu-count" id="wsCount"></span>
+        </div>
+        <div class="ws-list" id="wsList"></div>
+        <button class="ws-new" id="wsNew" type="button">＋ 新建独立工作台</button>
+      </div>
+    </div>
+
     <button class="board-quick-new" id="boardQuickNew" type="button" title="在当前这块画布下面再加一块">
       <span class="qn-plus">＋</span><span class="qn-text">新建画布</span>
     </button>

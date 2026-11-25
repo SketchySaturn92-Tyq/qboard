@@ -203,7 +203,16 @@ ${body}
  * 并做 proximity 级别的滚动吸附，停在哪儿就稳在哪儿。
  */
 export function buildProjectHtml(doc, activeId) {
-  const boards = Array.isArray(doc?.boards) ? doc.boards : [];
+  /* 文档有两代结构：新的是多工作台，旧的是平铺的一层画布。
+     导出只导当前工作台，别把别的工作台的内容也拼进来。 */
+  const boards = Array.isArray(doc?.boards)
+    ? doc.boards
+    : (() => {
+      const all = Array.isArray(doc?.workspaces) ? doc.workspaces : [];
+      if (!all.length) return [];
+      const ws = all.find((w) => w.id === doc.activeWorkspaceId) || all[0];
+      return Array.isArray(ws?.boards) ? ws.boards : [];
+    })();
   if (!boards.length) return buildExportHtml({ ...(doc || {}), nodes: [], background: {} });
 
   const first = boards.find((b) => b.id === activeId) || boards[0];

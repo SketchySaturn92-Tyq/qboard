@@ -160,7 +160,7 @@ export class Canvas {
   activateBoard(boardId) {
     if (!boardId || boardId === this.project.id) return false;
     if (!this.store.boards.some((b) => b.id === boardId)) return false;
-    this.store.doc.activeBoardId = boardId;
+    this.store.workspace.activeBoardId = boardId;
     this.store.save();
     this.els.forEach((el) => el.classList.remove('is-selected'));
     this.selection.clear();

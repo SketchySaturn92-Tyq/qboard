@@ -247,18 +247,27 @@ async function handleSetDoc(req, res, user) {
     return json(res, 400, { error: 'BAD_BODY', message: err.message });
   }
   const doc = payload?.doc;
-  if (!doc || typeof doc !== 'object' || !Array.isArray(doc.boards)) {
-    return json(res, 400, { error: 'BAD_DOC', message: 'doc.boards 必须是数组' });
+  /* 文档有两代结构：v6 起是多工作台 { workspaces: [...] }，
+     更早是多画布 { boards: [...] }。两种都要能存，不能只认旧的。 */
+  const hasWorkspaces = Array.isArray(doc?.workspaces) && doc.workspaces.length;
+  if (!doc || typeof doc !== 'object' || (!hasWorkspaces && !Array.isArray(doc?.boards))) {
+    return json(res, 400, { error: 'BAD_DOC', message: 'doc 需要 workspaces 或 boards 数组' });
   }
-  if (doc.boards.length > 200) {
-    return json(res, 400, { error: 'TOO_MANY_BOARDS', message: '画布数量超出上限（200）' });
+  const boardCount = hasWorkspaces
+    ? doc.workspaces.reduce((n, w) => n + (Array.isArray(w?.boards) ? w.boards.length : 0), 0)
+    : doc.boards.length;
+  if (boardCount > 400) {
+    return json(res, 400, { error: 'TOO_MANY_BOARDS', message: '画布数量超出上限（400）' });
   }
   try {
     await writeDoc(user, { ...doc, savedAt: Date.now() });
   } catch (err) {
     return json(res, 500, { error: 'STORE_FAILED', message: err.message });
   }
-  const boards = doc.boards.map((b) => ({
+  const boards = (hasWorkspaces
+    ? doc.workspaces.flatMap((w) => (Array.isArray(w?.boards) ? w.boards : []))
+    : doc.boards
+  ).map((b) => ({
     id: b.id,
     name: b.name || '',
     nodes: Array.isArray(b.nodes) ? b.nodes.length : 0,

@@ -19,10 +19,17 @@ function lsKeyOf(user) {
   return `${LS_FALLBACK}@${user || 'anon'}`;
 }
 
-/** 一份文档里总共有多少元素，用来判断哪边有真内容 */
+/** 一份文档里总共有多少元素，用来判断哪边有真内容。
+    有工作台之后画布分散在各工作台里，要全部数一遍；
+    只数 doc.boards 会把其它工作台的内容当成"没有"，白白丢掉本地那份。 */
 function countNodes(doc) {
-  if (!doc || !Array.isArray(doc.boards)) return 0;
-  return doc.boards.reduce((sum, b) => sum + (Array.isArray(b?.nodes) ? b.nodes.length : 0), 0);
+  if (!doc || typeof doc !== 'object') return 0;
+  const sum = (list) => (Array.isArray(list) ? list : [])
+    .reduce((n, b) => n + (Array.isArray(b?.nodes) ? b.nodes.length : 0), 0);
+  if (Array.isArray(doc.workspaces) && doc.workspaces.length) {
+    return doc.workspaces.reduce((n, w) => n + sum(w?.boards), 0);
+  }
+  return sum(doc.boards);
 }
 
 /**
@@ -115,10 +122,27 @@ export function newBoard(name = '未命名画布', patch = {}) {
   };
 }
 
-/** 整个文档：多块画布 + 当前正在看哪块 */
+/**
+ * 一个工作台：自己的一叠画布 + 自己当前停在哪一块。
+ * 工作台之间完全独立 —— 各自有画布、各自有对话、各自导出，
+ * 不是"同一个项目里的多个标签页"。
+ */
+export function newWorkspace(name = '工作台', boardName = '画布') {
+  const b = newBoard(boardName);
+  return {
+    id: uid(),
+    name,
+    boards: [b],
+    activeBoardId: b.id,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  };
+}
+
+/** 整个文档：多个工作台 + 当前正在看哪个工作台 */
 export function defaultDoc() {
-  const b = newBoard('我的个人网页');
-  return { version: 5, boards: [b], activeBoardId: b.id };
+  const ws = newWorkspace('我的工作台', '我的个人网页');
+  return { version: 6, workspaces: [ws], activeWorkspaceId: ws.id };
 }
 
 /** 兼容旧调用 */
@@ -195,18 +219,40 @@ export class Store {
     this._saving = false;
   }
 
+  /* ── 工作台 ──────────────────────────────────── */
+
+  /** 当前工作台。数据不对时兜底建一个，保证永远有得看。 */
+  get workspace() {
+    const d = this.doc;
+    if (!Array.isArray(d.workspaces) || !d.workspaces.length) {
+      d.workspaces = [newWorkspace()];
+      d.activeWorkspaceId = d.workspaces[0].id;
+    }
+    let w = d.workspaces.find((x) => x.id === d.activeWorkspaceId);
+    if (!w) {
+      w = d.workspaces[0];
+      d.activeWorkspaceId = w.id;
+    }
+    if (!Array.isArray(w.boards) || !w.boards.length) w.boards = [newBoard()];
+    return w;
+  }
+
+  get workspaces() {
+    return this.doc.workspaces || [];
+  }
+
   /* ── 画布集合 ────────────────────────────────── */
 
   get boards() {
-    return this.doc.boards;
+    return this.workspace.boards;
   }
 
   get board() {
-    const d = this.doc;
-    let b = d.boards.find((x) => x.id === d.activeBoardId);
+    const w = this.workspace;
+    let b = w.boards.find((x) => x.id === w.activeBoardId);
     if (!b) {
-      b = d.boards[0];
-      if (b) d.activeBoardId = b.id;
+      b = w.boards[0];
+      if (b) w.activeBoardId = b.id;
     }
     return b;
   }
@@ -224,18 +270,18 @@ export class Store {
     if (this.past.length > 60) this.past.shift();
     this.future.length = 0;
 
-    const at = afterId ? this.doc.boards.findIndex((b) => b.id === afterId) : -1;
-    if (at >= 0) this.doc.boards.splice(at + 1, 0, board);
-    else this.doc.boards.push(board);
+    const at = afterId ? this.workspace.boards.findIndex((b) => b.id === afterId) : -1;
+    if (at >= 0) this.workspace.boards.splice(at + 1, 0, board);
+    else this.workspace.boards.push(board);
 
-    this.doc.activeBoardId = board.id;
+    this.workspace.activeBoardId = board.id;
     this.emit('board');
     this.save();
     return board;
   }
 
   duplicateBoard(id) {
-    const src = this.doc.boards.find((b) => b.id === id);
+    const src = this.workspace.boards.find((b) => b.id === id);
     if (!src) return null;
     const copy = JSON.parse(JSON.stringify(src));
     copy.id = uid();
@@ -244,24 +290,24 @@ export class Store {
     copy.updatedAt = Date.now();
     this.past.push(JSON.stringify(this.doc));
     this.future.length = 0;
-    this.doc.boards.push(copy);
-    this.doc.activeBoardId = copy.id;
+    this.workspace.boards.push(copy);
+    this.workspace.activeBoardId = copy.id;
     this.emit('board');
     this.save();
     return copy;
   }
 
   setBoard(id) {
-    if (!this.doc.boards.some((b) => b.id === id)) return false;
-    if (this.doc.activeBoardId === id) return true;
-    this.doc.activeBoardId = id;
+    if (!this.workspace.boards.some((b) => b.id === id)) return false;
+    if (this.workspace.activeBoardId === id) return true;
+    this.workspace.activeBoardId = id;
     this.emit('board');
     this.save();
     return true;
   }
 
   renameBoard(id, name) {
-    const b = this.doc.boards.find((x) => x.id === id);
+    const b = this.workspace.boards.find((x) => x.id === id);
     if (!b) return;
     b.name = String(name || '').trim() || '未命名画布';
     b.updatedAt = Date.now();
@@ -272,7 +318,7 @@ export class Store {
   /** 把某块画布挪到指定位置（列表里的顺序，用户自己调）。
       from 在 to 之前时目标下标要减一，避免自己占位导致偏一格。 */
   moveBoard(id, toIndex) {
-    const boards = this.doc.boards;
+    const boards = this.workspace.boards;
     const from = boards.findIndex((b) => b.id === id);
     if (from < 0) return false;
     let to = Math.max(0, Math.min(boards.length - 1, toIndex));
@@ -288,19 +334,78 @@ export class Store {
   }
 
   removeBoard(id) {
-    if (this.doc.boards.length <= 1) return false;
-    const idx = this.doc.boards.findIndex((b) => b.id === id);
+    if (this.workspace.boards.length <= 1) return false;
+    const idx = this.workspace.boards.findIndex((b) => b.id === id);
     if (idx < 0) return false;
     this.past.push(JSON.stringify(this.doc));
     if (this.past.length > 60) this.past.shift();
     this.future.length = 0;
-    this.doc.boards.splice(idx, 1);
-    if (this.doc.activeBoardId === id) {
-      this.doc.activeBoardId = this.doc.boards[Math.min(idx, this.doc.boards.length - 1)].id;
+    this.workspace.boards.splice(idx, 1);
+    if (this.workspace.activeBoardId === id) {
+      this.workspace.activeBoardId = this.workspace.boards[Math.min(idx, this.workspace.boards.length - 1)].id;
     }
     this.emit('board');
     this.save();
     return true;
+  }
+
+  /* ── 工作台增删切换 ──────────────────────────── */
+
+  /** 新建一个完全独立的工作台：自己一叠画布，从一块空白画布开始。
+      patch 可以带名字，不传就叫「工作台 N」。 */
+  addWorkspace(patch = {}) {
+    const n = this.doc.workspaces.length + 1;
+    const ws = newWorkspace(patch.name || `工作台 ${n}`, patch.boardName || '画布');
+    if (patch.name) ws.name = patch.name;
+    this.doc.workspaces.push(ws);
+    this.doc.activeWorkspaceId = ws.id;
+    this.past.length = 0;      // 换工作台不是同一条时间线，撤销栈清掉
+    this.future.length = 0;
+    this.emit('workspace');
+    this.save();
+    return ws;
+  }
+
+  setWorkspace(id) {
+    if (!this.doc.workspaces.some((w) => w.id === id)) return false;
+    if (this.doc.activeWorkspaceId === id) return true;
+    this.doc.activeWorkspaceId = id;
+    this.past.length = 0;
+    this.future.length = 0;
+    this.emit('workspace');
+    this.save();
+    return true;
+  }
+
+  renameWorkspace(id, name) {
+    const w = this.doc.workspaces.find((x) => x.id === id);
+    if (!w) return false;
+    w.name = String(name || '').trim() || '工作台';
+    w.updatedAt = Date.now();
+    this.emit('workspace');
+    this.save();
+    return true;
+  }
+
+  /** 删掉一个工作台。最后一个不许删，否则就没有可看的地方了。 */
+  removeWorkspace(id) {
+    if (this.doc.workspaces.length <= 1) return false;
+    const idx = this.doc.workspaces.findIndex((w) => w.id === id);
+    if (idx < 0) return false;
+    this.doc.workspaces.splice(idx, 1);
+    if (this.doc.activeWorkspaceId === id) {
+      this.doc.activeWorkspaceId = this.doc.workspaces[Math.min(idx, this.doc.workspaces.length - 1)].id;
+    }
+    this.past.length = 0;
+    this.future.length = 0;
+    this.emit('workspace');
+    this.save();
+    return true;
+  }
+
+  workspaceById(id) {
+    if (!id) return null;
+    return this.doc.workspaces.find((w) => w.id === id) || null;
   }
 
   /* ── 订阅 / 变更 ─────────────────────────────── */
@@ -317,7 +422,7 @@ export class Store {
   /** 按 id 取某块画布；没有就返回 null */
   boardById(id) {
     if (!id) return null;
-    return this.doc.boards.find((b) => b.id === id) || null;
+    return this.workspace.boards.find((b) => b.id === id) || null;
   }
 
   /** 结构变更（增删改），记入撤销栈。
@@ -336,7 +441,7 @@ export class Store {
 
   /** 元素没了，它的对话线程也一起清掉，避免越攒越多 */
   pruneThreads() {
-    this.doc.boards.forEach((b) => {
+    this.workspace.boards.forEach((b) => {
       const threads = b.threads;
       if (!threads) return;
       const alive = new Set((b.nodes || []).map((n) => n.id));
@@ -512,7 +617,8 @@ export class Store {
     return this.doc;
   }
 
-  /** 把任何历史版本的数据整理成 { boards, activeBoardId } */
+  /** 把任何历史版本的数据整理成 { workspaces, activeWorkspaceId }。
+      旧数据只有一层画布，就整体裹成一个工作台，内容一律不丢。 */
   _migrate(parsed) {
     const norm = (b) => ({
       ...b,
@@ -524,13 +630,44 @@ export class Store {
       threads: b.threads && typeof b.threads === 'object' ? { ...b.threads } : {},
     });
 
-    // 已经是多画布文档
+    const normWs = (w, i) => {
+      const boards = (Array.isArray(w.boards) ? w.boards : []).map(norm);
+      const list = boards.length ? boards : [newBoard()];
+      const active = list.some((b) => b.id === w.activeBoardId) ? w.activeBoardId : list[0].id;
+      return {
+        id: w.id || uid(),
+        name: w.name || `工作台 ${i + 1}`,
+        boards: list,
+        activeBoardId: active,
+        createdAt: w.createdAt || Date.now(),
+        updatedAt: w.updatedAt || Date.now(),
+      };
+    };
+
+    // 已经是工作台文档
+    if (Array.isArray(parsed.workspaces) && parsed.workspaces.length) {
+      const workspaces = parsed.workspaces.map(normWs);
+      const active = workspaces.some((w) => w.id === parsed.activeWorkspaceId)
+        ? parsed.activeWorkspaceId
+        : workspaces[0].id;
+      return { version: 6, workspaces, activeWorkspaceId: active };
+    }
+
+    // 上一层：多画布文档（v5）—— 整体裹成一个工作台
     if (Array.isArray(parsed.boards) && parsed.boards.length) {
       const boards = parsed.boards.map(norm);
       const active = boards.some((b) => b.id === parsed.activeBoardId)
         ? parsed.activeBoardId
         : boards[0].id;
-      return { version: 5, boards, activeBoardId: active };
+      const ws = {
+        id: uid(),
+        name: parsed.name || '我的工作台',
+        boards,
+        activeBoardId: active,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      };
+      return { version: 6, workspaces: [ws], activeWorkspaceId: ws.id };
     }
 
     // 老版本：单块画布直接放在顶层
@@ -557,7 +694,15 @@ export class Store {
       nodes: parsed.nodes,
       threads,
     });
-    return { version: 5, boards: [board], activeBoardId: board.id };
+    const ws = {
+      id: uid(),
+      name: '我的工作台',
+      boards: [board],
+      activeBoardId: board.id,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+    return { version: 6, workspaces: [ws], activeWorkspaceId: ws.id };
   }
 }
 

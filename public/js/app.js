@@ -654,6 +654,77 @@ function refreshAfterBoardChange(scrollTo = true) {
   renderLayers();
   syncInspector();
   syncBoardUI();
+  syncWorkspaceUI();
+  renderCtxLog();
+  syncDockFocus();
+  updatePlaceholder();
+}
+
+/* ── 工作台 ──────────────────────────────────────────── */
+
+/** 顶栏的工作台名字与下拉列表 */
+function syncWorkspaceUI() {
+  const ws = store.workspace;
+  const nameEl = $('#wsName');
+  if (nameEl) nameEl.textContent = ws?.name || '工作台';
+  const countEl = $('#wsCount');
+  const listEl = $('#wsList');
+  if (!listEl) return;
+
+  const all = store.workspaces;
+  if (countEl) countEl.textContent = `${all.length} 个`;
+  listEl.innerHTML = '';
+  all.forEach((w) => {
+    const row = document.createElement('div');
+    row.className = 'ws-row' + (w.id === ws.id ? ' on' : '');
+    row.innerHTML = `
+      <span class="ws-row-name">${escapeHtml(w.name || '工作台')}</span>
+      <span class="ws-row-meta">${(w.boards || []).length} 块</span>
+      <button class="ws-row-del" type="button" title="删除这个工作台">✕</button>`;
+    row.onclick = (e) => {
+      if (e.target.closest('.ws-row-del')) return;
+      if (store.setWorkspace(w.id)) closeWorkspaceMenu();
+    };
+    row.querySelector('.ws-row-del').onclick = (e) => {
+      e.stopPropagation();
+      if (all.length <= 1) return toast('至少保留一个工作台', 'bad');
+      if (!confirm(`删除「${w.name}」，连同里面 ${(w.boards || []).length} 块画布？`)) return;
+      if (store.removeWorkspace(w.id)) { toast('已删除工作台', 'good'); closeWorkspaceMenu(); }
+    };
+    listEl.appendChild(row);
+  });
+}
+
+function openWorkspaceMenu() {
+  const menu = $('#wsMenu');
+  if (!menu) return;
+  syncWorkspaceUI();
+  menu.hidden = false;
+}
+function closeWorkspaceMenu() {
+  const menu = $('#wsMenu');
+  if (menu) menu.hidden = true;
+}
+
+/** 新建一个完全独立的工作台：空白起步，和现有画布互不影响 */
+function addWorkspace() {
+  const ws = store.addWorkspace();
+  refreshAfterWorkspaceChange();
+  closeWorkspaceMenu();
+  toast(`已新建「${ws.name}」，和原来的工作台互不影响`, 'good');
+  return ws;
+}
+
+/** 换工作台之后：画布整套换掉，视野回到适应窗口 */
+function refreshAfterWorkspaceChange() {
+  canvas.selection.clear();
+  canvas.interactiveId = null;
+  canvas.render();
+  canvas.fit();
+  renderLayers();
+  syncInspector();
+  syncBoardUI();
+  syncWorkspaceUI();
   renderCtxLog();
   syncDockFocus();
   updatePlaceholder();
@@ -3334,6 +3405,24 @@ function bind() {
     addBoardBelow(store.project.id);
   };
 
+  // 工作台切换器：点开是列表，底部是「新建独立工作台」
+  $('#wsBtn').onclick = (e) => {
+    e.stopPropagation();
+    const menu = $('#wsMenu');
+    if (!menu) return;
+    if (menu.hidden) openWorkspaceMenu(); else closeWorkspaceMenu();
+  };
+  $('#wsNew').onclick = (e) => {
+    e.stopPropagation();
+    addWorkspace();
+  };
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('#wsPick')) closeWorkspaceMenu();
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeWorkspaceMenu();
+  });
+
   // 每块画布底下那个「在这块下面加一块」
   canvas.onAddBoardAfter = (boardId) => addBoardBelow(boardId);
 
@@ -3545,6 +3634,10 @@ function bind() {
   store.on((project, reason) => {
     $('#btnUndo').disabled = !store.canUndo;
     $('#btnRedo').disabled = !store.canRedo;
+    if (reason === 'workspace') {
+      refreshAfterWorkspaceChange();
+      return;
+    }
     if (reason === 'board') {
       refreshAfterBoardChange();
       return;
@@ -3556,6 +3649,7 @@ function bind() {
   });
 
   syncBoardUI();
+  syncWorkspaceUI();
 
   bind();
   canvas.render();
