@@ -1,0 +1,8 @@
+docs/
+prefs/
+tmp/
+session.key
+config.json
+users.json
+*.bak-*
+*.log

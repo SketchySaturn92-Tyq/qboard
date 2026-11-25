@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>QBoard · 素材画布</title>
+<link rel="stylesheet" href="styles.css" />
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='26' fill='%230d0d10'/><circle cx='36' cy='38' r='13' fill='%23b8f65a'/><circle cx='66' cy='64' r='13' fill='%23fff'/></svg>" />
+</head>
+<body>
+
+<div class="app" id="app">
+
+  <!-- ── 顶栏 ────────────────────────────────────────── -->
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo"></span>
+      <span class="brand-name">QBoard</span>
+    </div>
+
+    <button class="board-quick-new" id="boardQuickNew" type="button" title="在当前这块画布下面再加一块">
+      <span class="qn-plus">＋</span><span class="qn-text">新建画布</span>
+    </button>
+
+    <div class="top-mid">
+      <button class="icon-btn" id="btnUndo" title="撤销 ⌘Z">↶</button>
+      <button class="icon-btn" id="btnRedo" title="重做 ⇧⌘Z">↷</button>
+    </div>
+
+    <div class="top-actions">
+      <span class="model-chip" id="modelChip" title="点击配置模型">未配置</span>
+      <button class="btn ghost" id="btnPreview" title="预览：动效全开，HTML 内部可以交互">▶ 预览</button>
+      <button class="btn ghost" id="btnBg">背景</button>
+      <button class="btn ghost" id="btnConfig">模型</button>
+      <button class="btn primary" id="btnExport">导出</button>
+      <button class="btn ghost" id="btnLogout" title="退出登录">退出</button>
+    </div>
+  </header>
+
+  <!-- ── 工作区 ──────────────────────────────────────── -->
+  <div class="workspace">
+
+    <!-- 左工具栏 -->
+    <aside class="rail">
+      <button class="tool active" data-tool="select" title="选择元素（V）">
+        <span class="tool-ico">↖</span><span class="tool-label">选择</span>
+      </button>
+      <span class="rail-sep"></span>
+      <button class="tool" data-tool="text" title="加一段文字（T）">
+        <span class="tool-ico">T</span><span class="tool-label">文字</span>
+      </button>
+      <button class="tool" data-tool="image" title="加图片 / GIF / 视频">
+        <span class="tool-ico">▣</span><span class="tool-label">图片</span>
+      </button>
+      <button class="tool" data-tool="shape" title="加一个形状（R）">
+        <span class="tool-ico">◻</span><span class="tool-label">形状</span>
+      </button>
+      <button class="tool" data-tool="html" title="加 HTML 片段 / 动态组件">
+        <span class="tool-ico">&lt;/&gt;</span><span class="tool-label">代码</span>
+      </button>
+      <span class="rail-sep"></span>
+      <button class="tool" id="btnFit" title="让整块画布铺满视野（⇧1）">
+        <span class="tool-ico">⤢</span><span class="tool-label">适应</span>
+      </button>
+    </aside>
+
+    <!-- 画布 -->
+    <main class="stage" id="stage">
+      <div class="viewport" id="viewport">
+        <!-- 一个项目下的画布纵向排在这里，由 canvas.js 按 order 建块 -->
+        <div class="world" id="world"></div>
+      </div>
+
+      <div class="hud hud-zoom">
+        <button class="icon-btn" id="zoomOut">−</button>
+        <span id="zoomVal">100%</span>
+        <button class="icon-btn" id="zoomIn">+</button>
+      </div>
+
+      <div class="hud hud-hint" id="hint">
+        拖文件进来 · 双击编辑文字 · 空格拖动画面 · ⌘滚轮缩放
+      </div>
+
+      <div class="drop-veil" id="dropVeil">
+        <span>松手 · 放到这里</span>
+      </div>
+    </main>
+
+    <!-- 右侧属性面板 -->
+    <aside class="inspector" id="inspector">
+      <div class="insp-empty" id="inspEmpty">
+        <h3>画布</h3>
+        <p class="muted">选中元素编辑属性，或从左侧添加。</p>
+
+        <div class="field-row">
+          <label class="field">
+            <span>尺寸</span>
+            <select id="artSize">
+              <option value="1440x900">桌面 1440 × 900</option>
+              <option value="1280x800">桌面 1280 × 800</option>
+              <option value="390x844">手机 390 × 844</option>
+              <option value="1080x1080">方形 1080 × 1080</option>
+              <option value="1920x1080">宽屏 1920 × 1080</option>
+            </select>
+          </label>
+        </div>
+
+        <h3 class="mt">图层</h3>
+        <div class="layers" id="layers"></div>
+
+        <h3 class="mt">快捷键</h3>
+        <ul class="keys">
+          <li><b>V</b> 选择 · <b>T</b> 文字 · <b>R</b> 形状</li>
+          <li><b>空格</b> 拖动画布 · <b>⌘滚轮</b> 缩放</li>
+          <li><b>⌘D</b> 复制 · <b>⌫</b> 删除 · <b>⌘Z</b> 撤销</li>
+          <li><b>⌘E</b> 导出 · <b>⌘K</b> 召唤对话</li>
+        </ul>
+      </div>
+
+      <div class="insp-body" id="inspBody" hidden>
+        <div class="insp-head">
+          <span class="insp-kind" id="inspKind">元素</span>
+          <input class="insp-name" id="inspName" spellcheck="false" />
+          <button class="icon-btn" id="inspDel" title="删除">✕</button>
+        </div>
+
+        <div class="sect">
+          <div class="sect-title">变换</div>
+          <div class="grid2">
+            <label class="mini-field"><span>X</span><input id="px" type="number" step="1" /></label>
+            <label class="mini-field"><span>Y</span><input id="py" type="number" step="1" /></label>
+            <label class="mini-field"><span>宽</span><input id="pw" type="number" step="1" min="8" /></label>
+            <label class="mini-field"><span>高</span><input id="ph" type="number" step="1" min="8" /></label>
+            <label class="mini-field"><span>旋转</span><input id="prot" type="number" step="1" /></label>
+            <label class="mini-field"><span>层级</span><input id="pz" type="number" step="1" /></label>
+          </div>
+          <label class="range-field">
+            <span>不透明度 <b id="popVal">100%</b></span>
+            <input id="pop" type="range" min="0" max="1" step="0.01" />
+          </label>
+          <label class="range-field">
+            <span>圆角 <b id="pradVal">0</b></span>
+            <input id="prad" type="range" min="0" max="200" step="1" />
+          </label>
+        </div>
+
+        <div class="sect" id="sectText" hidden>
+          <div class="sect-title">文字</div>
+          <textarea id="ptext" rows="4" placeholder="文字内容"></textarea>
+          <div class="grid2">
+            <label class="mini-field"><span>字号</span><input id="pfs" type="number" min="8" max="300" step="1" /></label>
+            <label class="mini-field"><span>字重</span>
+              <select id="pfw">
+                <option value="300">300</option>
+                <option value="400">400</option>
+                <option value="500">500</option>
+                <option value="600">600</option>
+                <option value="700">700</option>
+                <option value="800">800</option>
+              </select>
+            </label>
+          </div>
+          <div class="grid2">
+            <label class="mini-field"><span>颜色</span><input id="pcolor" type="color" /></label>
+            <label class="mini-field"><span>对齐</span>
+              <select id="palign">
+                <option value="left">左</option>
+                <option value="center">中</option>
+                <option value="right">右</option>
+              </select>
+            </label>
+          </div>
+          <div class="grid2">
+            <label class="mini-field"><span>行高</span><input id="plh" type="number" step="0.05" min="0.8" max="3" /></label>
+            <label class="mini-field"><span>字距</span><input id="pls" type="number" step="0.5" min="-10" max="40" /></label>
+          </div>
+        </div>
+
+        <div class="sect" id="sectShape" hidden>
+          <div class="sect-title">形状</div>
+          <div class="grid2">
+            <label class="mini-field"><span>类型</span>
+              <select id="pshape">
+                <option value="rect">矩形</option>
+                <option value="ellipse">椭圆</option>
+              </select>
+            </label>
+            <label class="mini-field"><span>填充</span><input id="pfill" type="color" /></label>
+          </div>
+          <label class="mini-field full"><span>渐变（可选，如 90deg,#ff0,#0ff）</span><input id="pgrad" placeholder="留空使用纯色" /></label>
+        </div>
+
+        <div class="sect" id="sectMedia" hidden>
+          <div class="sect-title">媒体</div>
+          <p class="muted small" id="mediaInfo"></p>
+          <button class="btn ghost wide" id="btnReplace">替换文件</button>
+        </div>
+
+        <div class="sect" id="sectHtml" hidden>
+          <div class="sect-title">HTML 内容</div>
+          <p class="muted small">可以直接改这里的代码，也可以让 AI 改。改完自动重绘。</p>
+          <label class="mini-field full"><span>CSS</span></label>
+          <textarea class="code-area" id="phtmlCss" rows="4" spellcheck="false"></textarea>
+          <label class="mini-field full"><span>结构</span></label>
+          <textarea class="code-area" id="phtmlHtml" rows="6" spellcheck="false"></textarea>
+          <label class="mini-field full"><span>脚本</span></label>
+          <textarea class="code-area" id="phtmlJs" rows="4" spellcheck="false"></textarea>
+          <button class="btn ghost wide" id="btnHtmlApply">应用到画布</button>
+          <button class="btn ghost wide" id="btnHtmlHover">先试试 hover 效果</button>
+        </div>
+
+        <div class="sect">
+          <div class="sect-title">动效</div>
+          <div class="grid2">
+            <label class="mini-field"><span>入场</span>
+              <select id="pmEnter">
+                <option value="none">无</option>
+                <option value="fadeIn">淡入</option>
+                <option value="fadeUp">上浮淡入</option>
+                <option value="popIn">弹出</option>
+                <option value="slideLeft">从右滑入</option>
+                <option value="slideRight">从左滑入</option>
+                <option value="blurIn">模糊聚焦</option>
+                <option value="scaleIn">长大</option>
+              </select>
+            </label>
+            <label class="mini-field"><span>循环</span>
+              <select id="pmLoop">
+                <option value="none">无</option>
+                <option value="float">漂浮</option>
+                <option value="pulse">呼吸</option>
+                <option value="spin">旋转</option>
+                <option value="sway">摇摆</option>
+                <option value="blink">闪烁</option>
+              </select>
+            </label>
+            <label class="mini-field"><span>时长 ms</span><input id="pmDur" type="number" step="50" min="80" max="20000" /></label>
+            <label class="mini-field"><span>延迟 ms</span><input id="pmDelay" type="number" step="50" min="0" max="20000" /></label>
+          </div>
+          <label class="mini-field full"><span>缓动</span>
+            <select id="pmEase">
+              <option value="spring">弹性 spring</option>
+              <option value="ease-out">ease-out</option>
+              <option value="ease-in-out">ease-in-out</option>
+              <option value="linear">linear</option>
+              <option value="cubic-bezier(.18,1.34,.36,1)">过冲</option>
+            </select>
+          </label>
+          <button class="btn ghost wide" id="btnReplay">▶ 重播动效</button>
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <!-- ── 悬浮 AI 窗口 ─────────────────────────────────── -->
+  <div class="dock" id="dock" data-state="closed">
+    <div class="dock-bar" id="dockBar">
+      <span class="dock-dot" id="dockDot"></span>
+      <span class="dock-title">整体</span>
+      <span class="dock-focus" id="dockFocus" hidden></span>
+      <div class="grow"></div>
+      <button class="icon-btn" id="dockClear" title="清空对话">清</button>
+      <button class="icon-btn" id="dockToggle" title="展开 / 收起">–</button>
+    </div>
+
+    <div class="dock-body" id="dockBody">
+      <div class="dock-log" id="dockLog"></div>
+      <form class="dock-form" id="dockForm">
+        <div class="attach-bar" id="dockAttach" hidden></div>
+        <textarea id="dockText" rows="1" placeholder="说点什么，比如：整体排得更透气一点（可粘贴图片）"></textarea>
+        <button class="send" id="dockSend" type="submit" aria-label="发送">
+          <svg viewBox="0 0 24 24" width="16" height="16"><path d="M12 19V5M12 5l-6 6M12 5l6 6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <!-- ── 右键指令菜单 ─────────────────────────────────── -->
+  <div class="ctx" id="ctx" hidden>
+    <div class="ctx-head">
+      <span class="ctx-dot" id="ctxDot"></span>
+      <span class="ctx-name" id="ctxName">画布</span>
+      <span class="ctx-kind" id="ctxKind"></span>
+      <div class="grow"></div>
+      <button class="icon-btn" id="ctxClose" title="关闭 Esc">✕</button>
+    </div>
+
+    <div class="ctx-log" id="ctxLog" hidden></div>
+
+    <form class="ctx-form" id="ctxForm">
+      <div class="attach-bar" id="ctxAttach" hidden></div>
+      <textarea id="ctxText" rows="1" placeholder="选中元素后可下指令…（可粘贴图片）"></textarea>
+      <button class="send" id="ctxSend" type="submit" aria-label="发送">
+        <svg viewBox="0 0 24 24" width="16" height="16"><path d="M12 19V5M12 5l-6 6M12 5l6 6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+    </form>
+
+    <div class="ctx-acts" id="ctxActs"></div>
+  </div>
+</div>
+
+<!-- 配置抽屉 -->
+<div class="sheet-mask" id="sheetMask"></div>
+<div class="sheet" id="cfgSheet">
+  <div class="sheet-grab"></div>
+  <h3>接入你的模型</h3>
+  <p class="sheet-sub">任何兼容 OpenAI 接口的服务都能用。存一次就跟着账号走，换浏览器、换设备登录后自动带出来。</p>
+  <div class="presets" id="presets"></div>
+  <label class="field"><span>Base URL</span><input id="cfgBase" spellcheck="false" /></label>
+  <label class="field"><span>API Key</span><input id="cfgKey" type="password" spellcheck="false" /></label>
+  <label class="field">
+    <span>模型名 <button type="button" class="link-btn" id="btnTestModel">测试这个模型</button></span>
+    <input id="cfgModel" spellcheck="false" list="modelList" placeholder="直接手填，或先拉列表" />
+    <datalist id="modelList"></datalist>
+  </label>
+  <p class="sheet-hint" id="modelHint"></p>
+  <button type="button" class="btn ghost wide tiny" id="btnFetchModels">拉取这个服务商的模型列表</button>
+  <label class="field"><span>温度 <b id="tempVal">0.7</b></span><input id="cfgTemp" type="range" min="0" max="1.3" step="0.05" value="0.7" /></label>
+
+  <div class="field">
+    <span>技能 <b id="skillCount"></b>
+      <button type="button" class="link-btn" id="btnSkillsAll">全开 / 全关</button>
+    </span>
+    <p class="sheet-hint">命中关键词时会自动生效。关掉某个技能，它就不再约束输出。</p>
+    <div class="skill-grid" id="skillGrid"></div>
+  </div>
+  <div class="sheet-actions">
+    <button class="btn ghost" id="cfgCancel">取消</button>
+    <button class="btn primary" id="cfgSave">保存并测试</button>
+  </div>
+  <p class="sheet-foot" id="cfgFoot"></p>
+</div>
+
+<!-- 背景抽屉 -->
+<div class="sheet" id="bgSheet">
+  <div class="sheet-grab"></div>
+  <h3>画布背景</h3>
+  <p class="sheet-sub">背景会跟着项目一起导出。</p>
+  <div class="presets" id="bgPresets"></div>
+
+  <div class="field">
+    <span>动态背景（实时渲染，会一直动）</span>
+    <div class="bg-live-grid" id="bgLive"></div>
+  </div>
+
+  <label class="field"><span>纯色</span><input id="bgColor" type="color" value="#ffffff" /></label>
+  <label class="field"><span>渐变（如 160deg,#0b1020,#1b2b4b）</span><input id="bgGrad" placeholder="留空则用纯色" /></label>
+  <label class="field"><span>或上传背景图 / 视频</span></label>
+  <div class="sheet-actions">
+    <button class="btn ghost" id="bgUpload">上传图片</button>
+    <button class="btn ghost" id="bgClear">清除</button>
+  </div>
+  <p class="sheet-foot" id="bgFoot"></p>
+</div>
+
+<input type="file" id="filePicker" multiple hidden accept="image/*,video/*,.svg,.html,.txt,.md,.json" />
+<input type="file" id="mediaPicker" hidden accept="image/*,video/*,.svg,.html" />
+
+<div class="toast-wrap" id="toastWrap"></div>
+
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
